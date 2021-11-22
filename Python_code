@@ -4,7 +4,6 @@ import boto3
 import sqlite3
 import xarray as xr
 import matplotlib.pyplot as plt
-from sqlalchemy import create_engine, inspect
 con = sqlite3.connect("/Users/briellebalswick/Downloads/exampleco_db.db")
 cur = con.cursor()
 # investigate trend over 4 different sensors
@@ -91,8 +90,6 @@ print(final_arr)
 print(final_arr.shape)
 
 # next step would be to send to the s3 bucket which I would have done using boto library
-# I would  probably convert this into multiple dataframes first
-final_arr.to_csv("final_array.csv")
 '''
  # it would look something like this but I currently cannot access my aws account to verify
 session = boto3.Session(
@@ -101,6 +98,6 @@ aws_secret_access_key='<your_secret_access_key>'
 )
 #Creating S3 Resource From the Session.
 s3 = session.resource('s3')
-object = s3.Object('<bucket_name>', 'final_arr.csv')
-result = object.put(Body=txt_data)
+object = s3.Object('<bucket_name>', 'final_text.txt')
+result = object.put(Body=str(final_arr))
 '''
