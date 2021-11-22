@@ -1,18 +1,13 @@
 import numpy as np
-import psycopg2
-import pygrametl
-from pygrametl.datasources import SQLSource, CSVSource
-from pygrametl.tables import Dimension, FactTable
 import pandas as pd
+import boto3
 import sqlite3
 import xarray as xr
-from scipy.stats import describe
 import matplotlib.pyplot as plt
 from sqlalchemy import create_engine, inspect
 con = sqlite3.connect("/Users/briellebalswick/Downloads/exampleco_db.db")
-# The result of a "cursor.execute" can be iterated over by row
 cur = con.cursor()
-
+# investigate trend over 4 different sensors
 feat_0 = pd.read_sql_query("SELECT * from feat_0", con)#.groupby(["machine"]).mean()
 #print(feat_0)
 feat_1=pd.read_sql_query("SELECT * from feat_1", con)#.groupby(["machine"]).mean()
@@ -22,41 +17,21 @@ feat_2=pd.read_sql_query("SELECT * from feat_2", con)#.groupby(["machine"]).mean
 feat_3=pd.read_sql_query("SELECT * from feat_3", con)#.groupby(["machine"]).mean()
 #print(feat_3)
 
+# intial array of feat tables
 equipment = xr.DataArray(np.array([feat_0,feat_1,feat_2,feat_3]),dims=("feat","rows","cols"))
-#print(equipment["feat"])
+
 
 # analyze by feat table first and see note any distinct difference between tables
 for i in range(4):
-    '''plt.scatter(equipment[i,:,1],equipment[i,:,2])
-    plt.show()'''
+    plt.scatter(equipment[i,:,1],equipment[i,:,2])
+    plt.show()
     stats=pd.Series(equipment[i,:,2]).describe()
     print("feat",str(i), ": ",stats)
+    # no particular pattern by table with all machines together
 
-# remove outliers
-cleaned=[]
-'''for i in range(4):
-    MEAN= np.mean(equipment[i,:,2])
-    STDEV= np.std(np.array(equipment[i,:,2]))
-    lower_bound= MEAN-(STDEV*2)
-    upper_bound= MEAN+(STDEV*2)
-    no_outliers = [True if x<upper_bound and x>lower_bound else False for x in equipment[i,:,2]]
-    cleaned.append(equipment[i,no_outliers,:])
-
-# combine feat and machines into one array with outliers removed now and re analyze
-CLEAN_DATA = np.concatenate((cleaned[0],cleaned[1],cleaned[2],cleaned[3]))
-print(CLEAN_DATA.shape)
-# run summary statistics again to see what spread looks like now
-
-Stats = pd.Series(CLEAN_DATA[:, 2]).describe()
-print("Overall:",stats)'''
-
-feat_0 = pd.read_sql_query("SELECT * from feat_0", con)
-feat_1=pd.read_sql_query("SELECT * from feat_1", con)
-feat_2=pd.read_sql_query("SELECT * from feat_2", con)
-feat_3=pd.read_sql_query("SELECT * from feat_3", con)
+# add static data to tables with sensor data
 static= pd.read_sql_query("SELECT * FROM static_data",con)
 complete_data= pd.concat([feat_0,feat_1,feat_2,feat_3])
-
 install_date=dict(zip(list(static["machine_id"]),list(static["install_date"])))
 Model=dict(zip(list(static["machine_id"]),list(static["model"])))
 room=dict(zip(list(static["machine_id"]),list(static["room"])))
@@ -64,17 +39,60 @@ complete_data["install_date"] = complete_data["machine"].map(install_date)
 complete_data["model"] = complete_data["machine"].map(Model)
 complete_data["room"] = complete_data["machine"].map(room)
 
-'''plt.boxplot(complete_data.value)
-plt.show()'''
-# filter out the faulty group
+# plot all data and look at spread
+plt.boxplot(complete_data.value)
+plt.show()
+# filter out the faulty group sensors, just focus on group around 0, cutoff is clear around at least (-200,200)
 non_faulty= complete_data[(complete_data.value<200) & (complete_data.value>-200)]
 print(len(non_faulty))
 plt.boxplot(non_faulty.value)
 plt.show()
 new_arr= xr.DataArray(np.array(complete_data),  dims=("rows","cols"))
+
 plt.scatter(non_faulty.machine,non_faulty.value)
 plt.show()
+# look at overall statistics for each machine
 print(non_faulty.groupby(["machine"]).describe())
-final_arr= xr.DataArray(np.array(non_faulty), dims=("rows","columns"))
+# create another array with only values around zero
+new_arr= xr.DataArray(np.array(non_faulty), dims=("rows","columns"))
 grouped =non_faulty.groupby(["machine","timestamp"]).describe()
 print(grouped)
+# get machine numbers for grouping
+machines= list(static["machine_id"])
+by_machine=[]
+# create array of machine info separated for each machine
+for i in range(20):
+    by_machine.append(non_faulty[non_faulty.machine==machines[i]])
+
+# remove outliers for each machine
+final_arr=[]
+for i in range(20):
+    MEAN = by_machine[i].value.mean()
+    STDEV= by_machine[i].value.std()
+    lower_bound = MEAN - (STDEV * 2)
+    upper_bound = MEAN + (STDEV * 2)
+    no_outliers = [True if x < upper_bound and x > lower_bound else False for x in by_machine[i].value]
+    # show spread for each machine
+    plt.boxplot(by_machine[i][no_outliers].value)
+    plt.show()
+    print(by_machine[i][no_outliers].describe())
+    final_arr.append(np.array(by_machine[i][no_outliers]))
+    # summarize new stats
+# final array of machine arrays for a total of 20
+final_arr =np.array(final_arr)
+print(final_arr)
+print(final_arr.shape)
+
+# next step would be to send to the s3 bucket which I would have done using boto library
+final_arr.to_csv("final_array.csv")
+'''
+ # it would look something like this but I currently cannot access my aws account to verify
+session = boto3.Session(
+aws_access_key_id='<your_access_key_id>',
+aws_secret_access_key='<your_secret_access_key>'
+)
+#Creating S3 Resource From the Session.
+s3 = session.resource('s3')
+object = s3.Object('<bucket_name>', 'final_arr.csv')
+result = object.put(Body=txt_data)
+'''
