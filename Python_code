@@ -24,6 +24,8 @@ equipment = xr.DataArray(np.array([feat_0,feat_1,feat_2,feat_3]),dims=("feat","r
 # analyze by feat table first and see note any distinct difference between tables
 for i in range(4):
     plt.scatter(equipment[i,:,1],equipment[i,:,2])
+    plt.title("feat "+str(i))
+    plt.xticks(rotation=45)
     plt.show()
     stats=pd.Series(equipment[i,:,2]).describe()
     print("feat",str(i), ": ",stats)
@@ -41,15 +43,19 @@ complete_data["room"] = complete_data["machine"].map(room)
 
 # plot all data and look at spread
 plt.boxplot(complete_data.value)
+plt.title("Overall spread across all feat tables")
 plt.show()
 # filter out the faulty group sensors, just focus on group around 0, cutoff is clear around at least (-200,200)
 non_faulty= complete_data[(complete_data.value<200) & (complete_data.value>-200)]
 print(len(non_faulty))
 plt.boxplot(non_faulty.value)
+plt.title("Faulty sensored groups removed")
 plt.show()
 new_arr= xr.DataArray(np.array(complete_data),  dims=("rows","cols"))
 
 plt.scatter(non_faulty.machine,non_faulty.value)
+plt.xticks(rotation=45)
+plt.title("Values across machines")
 plt.show()
 # look at overall statistics for each machine
 print(non_faulty.groupby(["machine"]).describe())
@@ -74,6 +80,7 @@ for i in range(20):
     no_outliers = [True if x < upper_bound and x > lower_bound else False for x in by_machine[i].value]
     # show spread for each machine
     plt.boxplot(by_machine[i][no_outliers].value)
+    plt.title(machines[i])
     plt.show()
     print(by_machine[i][no_outliers].describe())
     final_arr.append(np.array(by_machine[i][no_outliers]))
@@ -84,6 +91,7 @@ print(final_arr)
 print(final_arr.shape)
 
 # next step would be to send to the s3 bucket which I would have done using boto library
+# I would  probably convert this into multiple dataframes first
 final_arr.to_csv("final_array.csv")
 '''
  # it would look something like this but I currently cannot access my aws account to verify
